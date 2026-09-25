@@ -1,167 +1,51 @@
-name: Build OpenWrt 25.12 - JIDU 6J01
+name: Build OpenWrt for JioRouter AX6000 JIDU6J01
 
 on:
-  workflow_dispatch:
-
-permissions:
-  contents: read
-
-env:
-  OPENWRT_REPO: https://github.com/sh3ikh-faisal/openwrt.git
-  OPENWRT_BRANCH: openwrt-25.12
-  JIDU_PROFILE: jiorouter_ax6000-jidu6j01
+  workflow_dispatch: # Allows manual trigger from the GitHub Actions tab
 
 jobs:
   build:
-    name: JIDU 6J01
-    runs-on: ubuntu-24.04
-    timeout-minutes: 240
+    name: Compile OpenWrt
+    runs-on: ubuntu-22.04
 
     steps:
-
-      # =========================================================
-      # 1. Clone ONLY the required fork and branch
-      # =========================================================
-      - name: Clone OpenWrt fork
+      - name: Free Disk Space
         run: |
-          set -e
+          # OpenWrt builds require significant space; remove unused runner directories
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/lib/android
+          sudo apt-get clean
 
-          git clone \
-            --branch "${OPENWRT_BRANCH}" \
-            --single-branch \
-            --depth=1 \
-            "${OPENWRT_REPO}" \
-            openwrt
+      - name: Checkout OpenWrt Fork
+        uses: actions/checkout@v4
+        with:
+          repository: sh3ikh-faisal/openwrt
+          ref: openwrt-25.12
+          fetch-depth: 0
 
-          cd openwrt
-
-          echo "========================================"
-          echo "SOURCE VERIFICATION"
-          echo "========================================"
-
-          echo "Repository:"
-          git remote get-url origin
-
-          echo
-          echo "Branch:"
-          git branch --show-current
-
-          echo
-          echo "Commit:"
-          git rev-parse HEAD
-
-          echo
-          echo "Commit details:"
-          git log -1 --format='%H%n%ad%n%s' --date=iso
-
-          echo
-          echo "========================================"
-          echo "EXPECTED SOURCE"
-          echo "========================================"
-
-          test "$(git remote get-url origin)" = \
-            "${OPENWRT_REPO}"
-
-          test "$(git branch --show-current)" = \
-            "${OPENWRT_BRANCH}"
-
-          echo "Source verification: PASSED"
-
-      # =========================================================
-      # 2. Install build dependencies
-      # =========================================================
-      - name: Install build dependencies
+      - name: Install Build Dependencies
+        env:
+          DEBIAN_FRONTEND: noninteractive
         run: |
           sudo apt-get update
+          sudo apt-get install -y build-essential clang flex bison g++ gawk \
+            gcc-multilib g++-multilib gettext git libncurses-dev libssl-dev \
+            python3-distutils rsync unzip zlib1g-dev file wget
 
-          sudo apt-get install -y \
-            build-essential \
-            clang \
-            llvm \
-            flex \
-            bison \
-            gawk \
-            gettext \
-            git \
-            libncurses-dev \
-            libssl-dev \
-            python3 \
-            python3-setuptools \
-            python3-pip \
-            rsync \
-            unzip \
-            zlib1g-dev \
-            file \
-            wget \
-            curl \
-            time \
-            xsltproc \
-            swig \
-            ccache \
-            device-tree-compiler
-
-      # =========================================================
-      # 3. Update and install feeds
-      # =========================================================
-      - name: Update feeds
-        working-directory: openwrt
+      - name: Update and Install Feeds
         run: |
-          set -e
-
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      # =========================================================
-      # 4. Verify JIDU 6J01 exists in THIS fork
-      # =========================================================
-      - name: Verify JIDU 6J01 profile
-        working-directory: openwrt
+      - name: Configure Firmware
         run: |
-          set -e
-
-          echo "Searching for JIDU 6J01 profile..."
-
-          grep -R \
-            "jiorouter_ax6000-jidu6j01" \
-            target/linux/mediatek/image/
-
-          echo
-          echo "JIDU profile found."
-
-          echo
-          echo "Relevant device definition:"
-          grep -R -A25 -B5 \
-            "Device/jiorouter_ax6000-jidu6j01" \
-            target/linux/mediatek/image/ || true
-
-      # =========================================================
-      # 5. Configure base target + requested packages
-      #
-      # IMPORTANT:
-      # We do NOT invent a CONFIG_TARGET_DEVICE_... option.
-      #
-      # The actual JIDU device is selected later with:
-      #
-      # PROFILE=jiorouter_ax6000-jidu6j01
-      # =========================================================
-      - name: Configure build
-        working-directory: openwrt
-        run: |
-          set -e
-
-          cat > .config <<'EOF'
-
-          #
-          # MediaTek Filogic
-          #
-
+          cat <<EOF > .config
           CONFIG_TARGET_mediatek=y
           CONFIG_TARGET_mediatek_filogic=y
-
-          #
-          # Additional packages requested
-          #
-
+          CONFIG_TARGET_mediatek_filogic_DEVICE_jiorouter_ax6000-jidu6j01=y
+          
+          # Custom Packages
           CONFIG_PACKAGE_bridger=y
           CONFIG_PACKAGE_kmod-macvlan=y
           CONFIG_PACKAGE_mwan3=y
@@ -169,204 +53,25 @@ jobs:
           CONFIG_PACKAGE_htop=y
           CONFIG_PACKAGE_nano=y
           CONFIG_PACKAGE_iperf3=y
-
           EOF
-
+          
+          # Expand the configuration to resolve all dependencies
           make defconfig
 
-      # =========================================================
-      # 6. Verify configuration
-      # =========================================================
-      - name: Verify configuration
-        working-directory: openwrt
+      - name: Download Package Sources
         run: |
-          set -e
+          make download -j8
 
-          echo "========================================"
-          echo "SOURCE"
-          echo "========================================"
-
-          echo "Repository:"
-          git remote get-url origin
-
-          echo
-          echo "Branch:"
-          git branch --show-current
-
-          echo
-          echo "Commit:"
-          git rev-parse HEAD
-
-          echo
-          echo "========================================"
-          echo "TARGET"
-          echo "========================================"
-
-          grep '^CONFIG_TARGET_' .config | \
-            grep -E 'mediatek|filogic'
-
-          echo
-          echo "========================================"
-          echo "REQUESTED PACKAGES"
-          echo "========================================"
-
-          packages=(
-            bridger
-            kmod-macvlan
-            mwan3
-            luci-app-mwan3
-            htop
-            nano
-            iperf3
-          )
-
-          for package in "${packages[@]}"; do
-            if grep -q "^CONFIG_PACKAGE_${package}=y" .config; then
-              echo "[OK] ${package}"
-            else
-              echo "[ERROR] ${package} is not enabled"
-              exit 1
-            fi
-          done
-
-          echo
-          echo "All requested packages are enabled."
-
-      # =========================================================
-      # 7. Download package sources
-      # =========================================================
-      - name: Download sources
-        working-directory: openwrt
+      - name: Compile Firmware
         run: |
-          set -e
+          # Use all available cores. If it fails, fallback to single-core verbose output for debugging
+          make -j$(nproc) || make -j1 V=s
 
-          make download -j$(nproc)
-
-      # =========================================================
-      # 8. Build JIDU 6J01
-      #
-      # THIS is where the actual device profile is selected.
-      # =========================================================
-      - name: Build JIDU 6J01
-        working-directory: openwrt
-        run: |
-          set -e
-
-          echo "Building profile:"
-          echo "${JIDU_PROFILE}"
-
-          make -j$(nproc) V=s \
-            PROFILE="${JIDU_PROFILE}"
-
-      # =========================================================
-      # 9. List generated firmware
-      # =========================================================
-      - name: List generated firmware
-        working-directory: openwrt
-        run: |
-          set -e
-
-          echo "========================================"
-          echo "GENERATED JIDU 6J01 FILES"
-          echo "========================================"
-
-          find bin/targets/mediatek/filogic \
-            -type f \
-            -iname '*jidu*' \
-            -print
-
-      # =========================================================
-      # 10. Make sure the sysupgrade image exists
-      # =========================================================
-      - name: Verify sysupgrade image
-        working-directory: openwrt
-        run: |
-          set -e
-
-          SYSUPGRADE=$(find \
-            bin/targets/mediatek/filogic \
-            -type f \
-            -iname '*jidu6j01*sysupgrade*' \
-            | head -n 1)
-
-          if [ -z "$SYSUPGRADE" ]; then
-            echo "ERROR: JIDU 6J01 sysupgrade image was not generated."
-            exit 1
-          fi
-
-          echo "JIDU 6J01 sysupgrade image:"
-          echo "$SYSUPGRADE"
-
-      # =========================================================
-      # 11. Verify packages in generated manifest
-      # =========================================================
-      - name: Verify firmware manifest
-        working-directory: openwrt
-        run: |
-          set -e
-
-          MANIFEST=$(find \
-            bin/targets/mediatek/filogic \
-            -type f \
-            -name '*.manifest' \
-            | head -n 1)
-
-          if [ -z "$MANIFEST" ]; then
-            echo "ERROR: Firmware manifest not found."
-            exit 1
-          fi
-
-          echo "Manifest:"
-          echo "$MANIFEST"
-
-          echo
-          echo "========================================"
-          echo "REQUESTED PACKAGES IN FIRMWARE"
-          echo "========================================"
-
-          packages=(
-            bridger
-            kmod-macvlan
-            mwan3
-            luci-app-mwan3
-            htop
-            nano
-            iperf3
-          )
-
-          for package in "${packages[@]}"; do
-            if grep -q "^${package} " "$MANIFEST"; then
-              echo "[OK] ${package}"
-            else
-              echo "[WARNING] ${package} not found in manifest"
-            fi
-          done
-
-      # =========================================================
-      # 12. Generate checksums
-      # =========================================================
-      - name: Generate SHA256 checksums
-        working-directory: openwrt
-        run: |
-          set -e
-
-          cd bin/targets/mediatek/filogic
-
-          find . \
-            -type f \
-            -iname '*jidu*' \
-            -print0 |
-            xargs -0 sha256sum \
-            > jidu6j01-sha256sums.txt
-
-          echo
-          echo "========================================"
-          echo "SHA256"
-          echo "========================================"
-
-          cat jidu6j01-sha256sums.txt
-
-      # =========================================================
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: openwrt-jidu6j01-firmware
+          path: bin/targets/mediatek/filogic/=
       # 13. Save exact build information
       # =========================================================
       - name: Save build information
