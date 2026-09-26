@@ -71,7 +71,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: openwrt-jidu6j01-firmware
-          path: bin/targets/mediatek/filogic/=
+          path: bin/targets/mediatek/filogic/
       # 13. Save exact build information
       # =========================================================
       - name: Save build information
