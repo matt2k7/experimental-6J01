@@ -44,6 +44,10 @@ jobs:
           CONFIG_TARGET_mediatek_filogic=y
           CONFIG_TARGET_mediatek_filogic_DEVICE_jiorouter_ax6000-jidu6j01=y
           
+          # Web Interface
+          CONFIG_PACKAGE_luci=y
+          CONFIG_PACKAGE_luci-ssl=y
+          
           # Custom Packages
           CONFIG_PACKAGE_bridger=y
           CONFIG_PACKAGE_kmod-macvlan=y
@@ -72,7 +76,7 @@ jobs:
           make -j$(nproc) || make -j1 V=s
 
       # =========================================================
-      # Save exact build information (Paths fixed for root directory)
+      # Save exact build information
       # =========================================================
       - name: Save build information
         run: |
@@ -94,13 +98,12 @@ jobs:
           } > build-info/source.txt
 
           echo "Requested packages:" > build-info/packages.txt
-          grep -E '^CONFIG_PACKAGE_(bridger|kmod-macvlan|mwan3|luci-app-mwan3|htop|nano|iperf3)=y' .config >> build-info/packages.txt
+          grep -E '^CONFIG_PACKAGE_(luci|luci-ssl|bridger|kmod-macvlan|mwan3|luci-app-mwan3|htop|nano|iperf3)=y' .config >> build-info/packages.txt
 
-          # Safely copy sha256sums file if it exists, ignoring the error if it has a different name
           cp bin/targets/mediatek/filogic/*sha256sums* build-info/ || true
 
       # =========================================================
-      # Upload firmware artifact (Paths fixed and double-upload removed)
+      # Upload firmware artifact
       # =========================================================
       - name: Upload JIDU 6J01 firmware
         uses: actions/upload-artifact@v4
