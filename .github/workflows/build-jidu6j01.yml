@@ -1,7 +1,7 @@
 name: Build OpenWrt for JioRouter AX6000 JIDU6J01
 
 on:
-  workflow_dispatch: # Allows manual trigger from the GitHub Actions tab
+  workflow_dispatch:
 
 jobs:
   build:
@@ -11,7 +11,6 @@ jobs:
     steps:
       - name: Free Disk Space
         run: |
-          # OpenWrt builds require significant space; remove unused runner directories
           sudo rm -rf /usr/share/dotnet
           sudo rm -rf /opt/ghc
           sudo rm -rf /usr/local/lib/android
@@ -55,78 +54,63 @@ jobs:
           CONFIG_PACKAGE_iperf3=y
           EOF
           
-          # Expand the configuration to resolve all dependencies
           make defconfig
 
       - name: Download Package Sources
         run: |
           make download -j8
 
+      - name: Create Swap Space
+        run: |
+          sudo fallocate -l 8G /swapfile-extra
+          sudo chmod 600 /swapfile-extra
+          sudo mkswap /swapfile-extra
+          sudo swapon /swapfile-extra
+
       - name: Compile Firmware
         run: |
-          # Use all available cores. If it fails, fallback to single-core verbose output for debugging
           make -j$(nproc) || make -j1 V=s
 
-      - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: openwrt-jidu6j01-firmware
-          path: bin/targets/mediatek/filogic/
-      # 13. Save exact build information
+      # =========================================================
+      # Save exact build information (Paths fixed for root directory)
       # =========================================================
       - name: Save build information
-        working-directory: openwrt
         run: |
           set -e
-
-          mkdir -p ../build-info
+          mkdir -p build-info
 
           {
             echo "Repository:"
             git remote get-url origin
-
             echo
             echo "Branch:"
             git branch --show-current
-
             echo
             echo "Commit:"
             git rev-parse HEAD
-
             echo
             echo "Commit details:"
             git log -1 --format='%H%n%ad%n%s' --date=iso
+          } > build-info/source.txt
 
-            echo
-            echo "JIDU profile:"
-            echo "${JIDU_PROFILE}"
+          echo "Requested packages:" > build-info/packages.txt
+          grep -E '^CONFIG_PACKAGE_(bridger|kmod-macvlan|mwan3|luci-app-mwan3|htop|nano|iperf3)=y' .config >> build-info/packages.txt
 
-          } > ../build-info/source.txt
-
-          echo "Requested packages:" \
-            > ../build-info/packages.txt
-
-          grep -E \
-            '^CONFIG_PACKAGE_(bridger|kmod-macvlan|mwan3|luci-app-mwan3|htop|nano|iperf3)=y' \
-            .config \
-            >> ../build-info/packages.txt
-
-          cp \
-            bin/targets/mediatek/filogic/jidu6j01-sha256sums.txt \
-            ../build-info/
+          # Safely copy sha256sums file if it exists, ignoring the error if it has a different name
+          cp bin/targets/mediatek/filogic/*sha256sums* build-info/ || true
 
       # =========================================================
-      # 14. Upload firmware artifact
+      # Upload firmware artifact (Paths fixed and double-upload removed)
       # =========================================================
       - name: Upload JIDU 6J01 firmware
         uses: actions/upload-artifact@v4
         with:
           name: openwrt-jidu6j01-${{ github.run_number }}
           path: |
-            openwrt/bin/targets/mediatek/filogic/*jidu*
-            openwrt/bin/targets/mediatek/filogic/*.manifest
-            openwrt/bin/targets/mediatek/filogic/*.json
-            openwrt/bin/targets/mediatek/filogic/jidu6j01-sha256sums.txt
+            bin/targets/mediatek/filogic/*jidu*
+            bin/targets/mediatek/filogic/*.manifest
+            bin/targets/mediatek/filogic/*.json
+            bin/targets/mediatek/filogic/*sha256sums*
             build-info/
           if-no-files-found: error
           retention-days: 30
